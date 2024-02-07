@@ -1,0 +1,588 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
+package com.example.billsapp
+
+//import androidx.compose.foundation.layout.BoxScopeInstance.align
+import android.annotation.SuppressLint
+import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.viewModels
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModel
+import androidx.navigation.NavController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.example.billsapp.ui.theme.BillsAppTheme
+import kotlin.math.abs
+
+
+class MainActivity : ComponentActivity() {
+    private val viewModel: BillSplitterViewModel by viewModels()
+    @OptIn(ExperimentalComposeUiApi::class)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            BillsAppTheme {
+                val navController = rememberNavController()
+
+                // A surface container using the 'background' color from the theme
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    NavHost(navController = navController, startDestination = "main") {
+
+                        composable("main") {
+                            MainScreen(navController = navController, viewModel = viewModel)
+                        }
+                        composable("enterNames") {
+                            enterNamesScreen(navController = navController, viewModel = viewModel)
+                        }
+                        composable("addingBills") {
+                            AddingBillsScreen(navController = navController, viewModel = viewModel)
+                        }
+                        composable("confirmations") {
+                            ConfirmationScreen(navController = navController, viewModel = viewModel)
+                        }
+                        composable("billSplitter") {
+                            BillSplitterScreen(navController = navController, viewModel = viewModel)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+}
+
+class BillSplitterViewModel : ViewModel() {
+    // Transactions list
+    var transactions = mutableListOf<String>()
+    var showButton by mutableStateOf(true)
+    var payerTotals: MutableMap<String, Double> = mutableMapOf()
+    var netBalances: MutableMap<String, Double> = mutableMapOf()
+    var roommateNames: List<String> by mutableStateOf<List<String>>(emptyList())
+    var numRoommates by mutableIntStateOf(0)
+    var owesToWhom = mutableListOf<Triple<String, String, Double>>()
+
+    fun updateRoommates(newValue: String) {
+        numRoommates = newValue.toIntOrNull() ?: 0
+        roommateNames = List(numRoommates) { "" }
+    }
+
+    // Add a function to add a bill to transactions
+    fun addBillToTransactions(bill: String, payer: String, billAmount: Double) {
+        updatePayerTotals(payer, billAmount)
+        updateTransactions(bill)
+        //println(bill + "addBillToTransactions")
+    }
+    private fun updatePayerTotals(payer: String, billAmount: Double) {
+
+        // Update payer totals
+        payerTotals[payer] = (payerTotals[payer] ?: 0.0) + billAmount
+        //println(payerTotals)
+        //println(payerTotals[payer])
+        //println(payer)
+    }
+    private fun updateTransactions(bill: String) {
+        // Add the new bill to transactions
+        transactions.add(bill)
+        println(transactions + "Transactions")
+    }
+
+    fun printPayerTotals() {
+        for ((payer, total) in payerTotals) {
+            println("$payer: $total")
+       }
+    }
+
+    fun calculateNetBalances() {
+
+        // Step 1: Calculate the total amount paid by all payers
+        val totalPaid = payerTotals.values.sum()
+
+        // Step 2: Determine the equal share for each payer
+        val equalShare = totalPaid / payerTotals.size
+
+        // Step 3: Calculate net balances for each payer
+        //val netBalances = mutableMapOf<String, Double>()
+        for (payer in payerTotals.keys) {
+            val amountPaid = payerTotals[payer] ?: 0.0
+            val netBalance = amountPaid - equalShare
+            netBalances[payer] = netBalance
+        }
+
+        //println("Net Balances:")
+        //println(netBalances)
+        for ((payer, netBalance) in netBalances) {
+            println("$payer: $netBalance")
+            //clearing variable payerTotals after using it
+
+        }
+        payerTotals.clear()
+    }
+
+
+    fun determineOwesToWhom() {
+        owesToWhom = mutableListOf()
+
+        // Step 1: Calculate net balances
+        calculateNetBalances()
+
+        // Step 2: Identify payers with positive and negative balances
+        val positiveBalances = netBalances.filter { it.value > 0 }
+        val negativeBalances = netBalances.filter { it.value < 0 }
+
+        // Step 3: Determine debts between payers
+        for ((debtor, debtorBalance) in negativeBalances) {
+            val creditors = positiveBalances.filter { it.value > 0 } // Ignore those with zero balance
+            creditors.forEach { (creditor, creditorBalance) ->
+                val amountOwed = minOf(creditorBalance, abs(debtorBalance))
+
+                // Round the amount to a maximum of two decimal places
+                val roundedAmount = amountOwed.round(2)
+
+                println("$debtor owes $creditor: $roundedAmount")
+                if (roundedAmount > 0) {
+                    owesToWhom.add(Triple(debtor, creditor, roundedAmount))
+                }
+            }
+        }
+
+        println("Owes to Whom:")
+        owesToWhom.forEach { (debtor, creditor, amount) ->
+            println("$debtor owes $creditor: $amount")
+        }
+        println("Owes to Whom variable: $owesToWhom")
+    }
+
+    // Extension function to round a Double to a specified number of decimal places
+    fun Double.round(decimals: Int): Double = "%.${decimals}f".format(this).toDouble()
+
+
+
+    fun reset(){
+        transactions = mutableListOf()
+        showButton = false
+        payerTotals.clear()
+        netBalances.clear()
+        roommateNames = emptyList()
+        numRoommates = 0
+        owesToWhom.clear()
+        println("Reset Done")
+    }
+
+}
+
+@Composable
+fun MainScreen(navController: NavController, viewModel: BillSplitterViewModel) {
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        // Image section
+        Image(
+            painter = painterResource(id = R.drawable.orange),
+            contentDescription = null, // Set a meaningful content description
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(MaterialTheme.shapes.medium),
+            contentScale = ContentScale.Crop
+        )
+
+        // Overlay with button and other UI elements
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Your button
+            Button(
+                onClick = {
+                    // Go to next screen
+                    navController.navigate("enterNames")
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text("Split bills")
+            }
+
+            // Add more UI elements as needed
+        }
+    }
+}
+
+@SuppressLint("UnrememberedMutableState")
+@Composable
+public fun enterNamesScreen(navController: NavController, viewModel: BillSplitterViewModel)
+    {
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        TextField(
+
+            value = if (viewModel.numRoommates != 0) viewModel.numRoommates.toString() else "",
+            onValueChange = { newValue ->
+                viewModel.updateRoommates(newValue)
+            },
+                label = { Text("Enter the number of roommates") },
+                keyboardOptions = KeyboardOptions.Default.copy(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+            )
+
+        for (i in 0 until (viewModel.numRoommates ?: 0)) {
+            OutlinedTextField(
+                value = viewModel.roommateNames.getOrNull(i) ?: "",
+                onValueChange = {
+                    val updatedRoommateNames = viewModel.roommateNames.toMutableList()
+                    updatedRoommateNames[i] = it
+                    viewModel.roommateNames = updatedRoommateNames
+                },
+                label = { Text("Enter the name for Roommate ${i + 1}") },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Text,
+                    imeAction = ImeAction.Done,
+                ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                //.align(Alignment.Center)
+                .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            Button(
+                onClick = {
+                    //Setting numRoommates to 0 due it is not longer used again
+                    //And will be set up to 0 when go back to the last screen
+                    //viewModel.numRoommates = 0
+                    // Navigate to the next screen when names are entered
+                    navController.navigate("addingBills")
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+            ) {
+                Text("Next")
+            }
+        }
+    }
+
+}
+
+@Composable
+public fun AddingBillsScreen(navController: NavController, viewModel: BillSplitterViewModel) {
+
+    var payer by remember { mutableStateOf("") }
+    var billAmount by remember { mutableStateOf(0.0) }
+    var description by remember { mutableStateOf("") }
+    var expanded by remember { mutableStateOf(false) }
+    val selectedText by remember { mutableStateOf("") }
+    val context = LocalContext.current
+
+
+    //viewModel.showButton = false
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+
+    ) {
+        Column {
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = {
+                    expanded = !expanded
+                }
+
+            ) {
+                TextField(
+                    value = payer,
+                    onValueChange = {},
+                    readOnly = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    modifier = Modifier.menuAnchor()
+                )
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    viewModel.roommateNames.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option) },
+                            onClick = {
+                                payer = option
+                                expanded = false
+                                Toast.makeText(context, option, Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                }
+            }
+            // Spacer(modifier = Modifier.weight(1f)) // Add a spacer to push the button to the bottom
+            // Rest of your UI components outside of the dropdown
+
+            OutlinedTextField(
+                value = if (billAmount != 0.0) billAmount.toString() else "",
+                onValueChange = { billAmount = it.toDoubleOrNull() ?: 0.0 },
+                label = { Text("Bill Amount") },
+                keyboardOptions = KeyboardOptions.Default.copy(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+            )
+            OutlinedTextField(
+                value = description,
+                onValueChange = { description = it },
+                label = { Text("Description") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+            )
+        }
+
+        // Button is placed outside of the Column and place it on the next column
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.Center)
+                .padding(horizontal = 16.dp)
+        ) {
+            //AddBill button
+            Button(
+                onClick = {
+                    // Add the bill to transactions
+                    var bill = "$payer paid $billAmount for $description"
+                    // Add the bill to transactions through the ViewModel
+                    viewModel.addBillToTransactions(bill, payer, billAmount)
+                    viewModel.printPayerTotals()
+                    //println(bill)
+
+
+                    // Clear the input fields
+                    payer = ""
+                    billAmount = 0.0
+                    description = ""
+                    bill=""
+
+                    // go back to the same screen
+                    navController.navigate("addingBills")
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 8.dp, bottom = 16.dp)
+            ) {
+                Text("Add Bill")
+            }
+            // Button to finish adding bills
+            Button(
+                onClick = {
+                    //It only navigates to the next screen
+                    navController.navigate("confirmations")
+                    //Restarting variables
+
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    //.align(Alignment.Center)
+                    .padding(start = 8.dp, bottom = 16.dp)
+            ) {
+                Text("Finish")
+            }
+        }
+    }
+
+}
+
+@Composable
+fun ConfirmationScreen(
+    navController: NavController,
+    viewModel: BillSplitterViewModel) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+
+        Text("Transactions:",fontSize = 30.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+
+            Text(
+                text = viewModel.transactions.joinToString(separator = "\n"),
+                fontSize = 20.sp,
+                modifier = Modifier
+                    .padding(8.dp)
+                    .align(Alignment.CenterHorizontally))
+
+        Button(
+            onClick = {
+                navController.navigate("billSplitter")
+                // Restarting all variables
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .align(Alignment.CenterHorizontally)
+        ) {
+            Text("Proceed to split")
+        }
+    }
+}
+
+@Composable
+fun BillSplitterScreen(
+    navController: NavController,
+    viewModel: BillSplitterViewModel
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        viewModel.determineOwesToWhom()
+        // Display owesToWhom
+        Text("Balance:",fontSize = 24.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+        for ((debtor, creditor, amount) in viewModel.owesToWhom) {
+            Text(
+                text = "$debtor owes $creditor: $amount",
+                fontSize = 20.sp,
+                modifier = Modifier
+                    .padding(8.dp)
+                    .align(Alignment.CenterHorizontally))
+            //println("$debtor owes $creditor: $amount")
+        }
+        Button(
+            onClick = {
+                navController.navigate("main")
+                      // Restarting all variables
+                        viewModel.reset()
+                        println("Despues del reset en compose")
+                      },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .align(Alignment.CenterHorizontally)
+        ) {
+            Text("Back to Main Screen")
+        }
+    }
+}
+
+
+
+
+//############################# Preview Section ###################################
+
+        @Preview(showBackground = true)
+        @Composable
+        fun PreviewMainScreen() {
+            val navController = rememberNavController()
+            BillsAppTheme {
+                MainScreen(
+                navController = navController,
+                viewModel = BillSplitterViewModel()
+            )
+        }
+    }
+
+        @Preview(showBackground = true)
+        @Composable
+        fun PreviewEnterNamesScreen() {
+            val navController = rememberNavController()
+            BillsAppTheme {
+                enterNamesScreen(
+                    navController = navController,
+                    viewModel = BillSplitterViewModel()
+                )
+            }
+        }
+
+
+        @Preview(showBackground = true)
+        @Composable
+        fun PreviewAddingBillsScreen() {
+            val navController = rememberNavController()
+            BillsAppTheme {
+                AddingBillsScreen(
+                    navController = navController,
+                    viewModel = BillSplitterViewModel()
+                )
+            }
+        }
+
+        @Preview(showBackground = true)
+        @Composable
+        fun PreviewBillSplitterScreen() {
+            val navController = rememberNavController()
+            val viewModel = BillSplitterViewModel()
+            //val owesToWhom = listOf(Triple("Person1", "Person2", 10.0))
+            //val positiveBalances = mapOf("Person1" to 20.0)
+            //val negativeBalances = mapOf("Person2" to -10.0)
+            BillsAppTheme {
+                BillSplitterScreen(
+                    //owesToWhom = owesToWhom,
+                    //positiveBalances = positiveBalances,
+                    //negativeBalances = negativeBalances,
+                    navController = navController,
+                    viewModel = viewModel
+                )
+            }
+        }
+
